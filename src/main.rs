@@ -22,6 +22,7 @@ struct Stream<T: io::Read> {
     next: Option<char>,
 }
 
+
 impl <T: io::Read> Stream<T> {
     fn peek(&mut self) -> char {
         return self.next.expect("asked for more!");
@@ -40,35 +41,22 @@ impl <T: io::Read> Stream<T> {
     }
 }
 
-struct WorkStack<T> {
-    max: usize,
-    buf: sync::Arc<(sync::Mutex<Vec<T>>, sync::Condvar)>,
+type WorkStack = sync::Arc<(sync::Mutex<Vec<Option<String>>>, sync::Condvar)>;
+
+fn push(us: &WorkStack, val: Option<String>) {
+    let &(ref mux, ref cvar) = &**us;
+    let mut lock = mux.lock().unwrap();
+    lock.push(val);
+    cvar.notify_one();
 }
 
-impl <T> WorkStack<T> {
-    fn new(max: usize) -> WorkStack<T> {
-        let buf = Vec::with_capacity(max);
-        return WorkStack { max, buf: sync::Arc::new((sync::Mutex::new(buf), sync::Condvar::new())) };
+fn pop(us: &WorkStack) -> Option<String> {
+    let &(ref mux, ref cvar) = &**us;
+    let mut lock = mux.lock().unwrap();
+    while lock.is_empty() {
+        lock = cvar.wait(lock).unwrap();
     }
-
-    fn push(&mut self, val: T) {
-        let &(ref mux, ref cvar) = &*self.buf;
-        let mut lock = mux.lock().unwrap();
-        lock.push(val);
-        cvar.notify_one();
-    }
-
-    fn pop(&mut self) -> T {
-        let &(ref mux, ref cvar) = &*self.buf;
-        let mut lock = mux.lock().unwrap();
-        while !lock.is_empty() {
-            lock = cvar.wait(lock).unwrap();
-        }
-        return lock.pop().unwrap();
-    }
-}
-
-unsafe impl <T> Send for WorkStack<T> where T: Send {
+    return lock.pop().unwrap();
 }
 
 fn drop_whitespace<T: io::Read>(iter: &mut Stream<T>) {
@@ -151,11 +139,13 @@ fn main() {
     let mut file = fs::File::open(path).expect("input file must exist and be readable");
     let mut iter = Stream::new(&mut file);
 
-    let mut work: sync::Arc<WorkStack<Option<&str>>> = sync::Arc::new(WorkStack::new(10));
+    let mut work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
+
+    let mut threads: Vec<thread::JoinHandle<_>> = Vec::new();
 
     for _ in 1..10 {
         let mut thread_work = work.clone();
-        thread::spawn(move || {
+        threads.push(thread::spawn(move || {
             let params = postgres::params::ConnectParams::builder()
                 .user("faux", None)
                 .build(postgres::params::Host::Unix(
@@ -164,11 +154,14 @@ fn main() {
             let tran = conn.transaction().unwrap();
             let stmt = tran.prepare("INSERT INTO db3j (row) VALUES ($1::varchar::jsonb)").unwrap();
             loop {
-                let s = thread_work.pop().unwrap();
-                stmt.execute(&[&s]).unwrap();
+                let s = pop(&thread_work);
+                if s.is_none() {
+                    break;
+                }
+                stmt.execute(&[&s.unwrap()]).unwrap();
             }
             tran.commit().unwrap();
-        });
+        }));
     }
 
     let mut buf: Vec<char> = Vec::new();
@@ -179,7 +172,7 @@ fn main() {
         let end = iter.next().unwrap();
         if end == ',' {
             let s: String = buf.iter().cloned().collect();
-            work.push(Some(s.as_str()));
+            push(&work, Some(s));
             buf.clear();
             continue;
         }
@@ -188,5 +181,13 @@ fn main() {
         }
 
         panic!("invalid ender: {}", end);
+    }
+
+    for _ in &threads {
+        push(&work, None);
+    }
+
+    for t in threads {
+        t.join().unwrap();
     }
 }
