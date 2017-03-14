@@ -1,0 +1,7 @@
+[package]
+name = "jsonarray2pg"
+version = "0.1.0"
+authors = ["Chris West (Faux) <git@goeswhere.com>"]
+
+[dependencies]
+postgres = "0.14.0"
