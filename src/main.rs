@@ -6,6 +6,7 @@ use std::env;
 use std::fs;
 use std::io;
 use std::path;
+use std::sync;
 
 use std::iter::Peekable;
 use std::vec::Vec;
@@ -38,6 +39,33 @@ impl <T: io::Read> Stream<T> {
     }
 }
 
+struct WorkStack<T> {
+    max: usize,
+    buf: sync::Arc<(sync::Mutex<Vec<T>>, sync::Condvar)>,
+}
+
+impl <T> WorkStack<T> {
+    fn new(max: usize) -> WorkStack<T> {
+        let buf = Vec::with_capacity(max);
+        return WorkStack { max, buf: sync::Arc::new((sync::Mutex::new(buf), sync::Condvar::new())) };
+    }
+
+    fn push(&mut self, val: T) {
+        let &(ref mux, ref cvar) = &*self.buf;
+        let mut lock = mux.lock().unwrap();
+        lock.push(val);
+        cvar.notify_one();
+    }
+
+    fn pop(&mut self) -> T {
+        let &(ref mux, ref cvar) = &*self.buf;
+        let mut lock = mux.lock().unwrap();
+        while !lock.is_empty() {
+            cvar.wait(lock).unwrap();
+        }
+        return lock.pop().unwrap();
+    }
+}
 
 fn drop_whitespace<T: io::Read>(iter: &mut Stream<T>) {
     while iter.peek().is_whitespace() {
