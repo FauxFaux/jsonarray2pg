@@ -20,7 +20,7 @@ struct Stream<T: io::Read> {
 }
 
 
-impl <T: io::Read> Stream<T> {
+impl<T: io::Read> Stream<T> {
     fn peek(&mut self) -> char {
         return self.next.expect("asked for more!");
     }
@@ -34,7 +34,7 @@ impl <T: io::Read> Stream<T> {
     fn new(from: &mut T) -> Stream<&mut T> {
         let mut it = from.chars();
         let next = it.next().map(|x| x.unwrap());
-        return Stream { it , next };
+        return Stream { it, next };
     }
 }
 
@@ -90,7 +90,9 @@ fn read_array<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<
     unimplemented!();
 }
 
-fn read_string<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -> Result<(), String> {
+fn read_string<T: io::Read>(mut iter: &mut Stream<T>,
+                            mut buf: &mut Vec<char>)
+                            -> Result<(), String> {
     assert_eq!('"', iter.next().unwrap());
     buf.push('"');
     loop {
@@ -113,8 +115,9 @@ fn read_num<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<()
     unimplemented!();
 }
 
-fn extract_document<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -> Result<(), String>
-{
+fn extract_document<T: io::Read>(mut iter: &mut Stream<T>,
+                                 mut buf: &mut Vec<char>)
+                                 -> Result<(), String> {
     drop_whitespace(&mut iter);
 
     let start = iter.peek();
@@ -135,8 +138,9 @@ fn main() {
     let mut args = env::args();
     args.next().expect("binary name must always be present??");
     let path = args.next().expect("input filename must be provided");
-    let mut file = io::BufReader::new(fs::File::open(path).expect("input file must exist and be readable"));
-    let mut iter = Stream::new(&mut file);
+    let file = fs::File::open(path).expect("input file must exist and be readable");
+    let mut reader = io::BufReader::new(file);
+    let mut iter = Stream::new(&mut reader);
 
     let work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
 
