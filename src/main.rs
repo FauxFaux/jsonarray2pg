@@ -7,6 +7,7 @@ use std::fs;
 use std::io;
 use std::path;
 use std::sync;
+use std::thread;
 
 use std::iter::Peekable;
 use std::vec::Vec;
@@ -61,10 +62,13 @@ impl <T> WorkStack<T> {
         let &(ref mux, ref cvar) = &*self.buf;
         let mut lock = mux.lock().unwrap();
         while !lock.is_empty() {
-            cvar.wait(lock).unwrap();
+            lock = cvar.wait(lock).unwrap();
         }
         return lock.pop().unwrap();
     }
+}
+
+unsafe impl <T> Send for WorkStack<T> where T: Send {
 }
 
 fn drop_whitespace<T: io::Read>(iter: &mut Stream<T>) {
@@ -147,14 +151,25 @@ fn main() {
     let mut file = fs::File::open(path).expect("input file must exist and be readable");
     let mut iter = Stream::new(&mut file);
 
-    let params = postgres::params::ConnectParams::builder()
-        .user("faux", None)
-        .build(postgres::params::Host::Unix(
-                path::PathBuf::from("/var/run/postgresql")));
-    let conn = postgres::Connection::connect(params, postgres::TlsMode::None).unwrap();
-    let tran = conn.transaction().unwrap();
-    let stmt = tran.prepare("INSERT INTO db3j (row) VALUES ($1::varchar::jsonb)").unwrap();
-    println!("{}", stmt.param_types()[0]);
+    let mut work: sync::Arc<WorkStack<Option<&str>>> = sync::Arc::new(WorkStack::new(10));
+
+    for _ in 1..10 {
+        let mut thread_work = work.clone();
+        thread::spawn(move || {
+            let params = postgres::params::ConnectParams::builder()
+                .user("faux", None)
+                .build(postgres::params::Host::Unix(
+                        path::PathBuf::from("/var/run/postgresql")));
+            let conn = postgres::Connection::connect(params, postgres::TlsMode::None).unwrap();
+            let tran = conn.transaction().unwrap();
+            let stmt = tran.prepare("INSERT INTO db3j (row) VALUES ($1::varchar::jsonb)").unwrap();
+            loop {
+                let s = thread_work.pop().unwrap();
+                stmt.execute(&[&s]).unwrap();
+            }
+            tran.commit().unwrap();
+        });
+    }
 
     let mut buf: Vec<char> = Vec::new();
     assert_eq!('[', iter.next().expect("non-empty file"));
@@ -164,7 +179,7 @@ fn main() {
         let end = iter.next().unwrap();
         if end == ',' {
             let s: String = buf.iter().cloned().collect();
-            stmt.execute(&[&s]).unwrap();
+            work.push(Some(s.as_str()));
             buf.clear();
             continue;
         }
@@ -174,5 +189,4 @@ fn main() {
 
         panic!("invalid ender: {}", end);
     }
-    tran.commit().unwrap();
 }
