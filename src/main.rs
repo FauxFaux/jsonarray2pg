@@ -13,35 +13,39 @@ use std::io::Read;
 type CharResult = Result<char, io::CharsError>;
 
 struct Stream<T: io::Read> {
-    fh: T,
-    next: char,
+    it: io::Chars<T>,
+    next: Option<char>,
 }
 
 impl <T: io::Read> Stream<T> {
-    fn peek() -> char {
-        return ' ';
+    fn peek(&mut self) -> char {
+        return self.next.expect("asked for more!");
+    }
+
+    fn next(&mut self) -> Option<char> {
+        let old_val = self.next;
+        self.next = self.it.next().map(|x| x.unwrap());
+        return old_val;
+    }
+
+    fn new(from: &mut T) -> Stream<&mut T> {
+        let mut it = from.chars();
+        let next = it.next().map(|x| x.unwrap());
+        return Stream { it , next };
     }
 }
 
-fn drop_whitespace<T>(iter: &mut Peekable<T>)
-    -> Result<(), String>
-    where T: Iterator<Item=CharResult>
-{
-    loop {
-        let res = iter.peek().unwrap();
-        let c = res.unwrap();
-        if !c.is_whitespace() {
-            return Ok(());
-        }
+
+fn drop_whitespace<T: io::Read>(iter: &mut Stream<T>) {
+    while iter.peek().is_whitespace() {
         iter.next();
     }
 }
 
-fn extract_document<T>(iter: &mut Peekable<T>, buf: &Vec<char>)
+fn extract_document<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>)
     -> Result<(), String>
-    where T: Iterator<Item=CharResult>
 {
-    iter.next();
+    drop_whitespace(&mut iter);
     return Err("oops".to_string());
 }
 
@@ -49,9 +53,9 @@ fn main() {
     let mut args = env::args();
     let us = args.next().expect("binary name must always be present??");
     let path = args.next().expect("input filename must be provided");
-    let file = fs::File::open(path).expect("input file must exist and be readable");
+    let mut file = fs::File::open(path).expect("input file must exist and be readable");
     let mut buf: Vec<char> = Vec::new();
-    let mut iter = file.chars().peekable();
-    assert_eq!('[', iter.next().expect("root element is an array").unwrap());
+    let mut iter = Stream::new(&mut file);
+    assert_eq!('[', iter.next().expect("non-empty file"));
     extract_document(&mut iter, &mut buf).expect("suc");
 }
