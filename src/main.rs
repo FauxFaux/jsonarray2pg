@@ -9,13 +9,10 @@ use std::path;
 use std::sync;
 use std::thread;
 
-use std::iter::Peekable;
 use std::vec::Vec;
 
 // magic:
 use std::io::Read;
-
-type CharResult = Result<char, io::CharsError>;
 
 struct Stream<T: io::Read> {
     it: io::Chars<T>,
@@ -75,7 +72,7 @@ fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -> R
         assert_eq!(':', iter.next().unwrap());
         buf.push(':');
         drop_whitespace(&mut iter);
-        extract_document(&mut iter, &mut buf);
+        try!(extract_document(&mut iter, &mut buf));
         drop_whitespace(&mut iter);
         let end = iter.next().unwrap();
         buf.push(end);
@@ -88,6 +85,7 @@ fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -> R
     return Ok(());
 }
 
+#[allow(unused)]
 fn read_array<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<(), String> {
     unimplemented!();
 }
@@ -110,6 +108,7 @@ fn read_string<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -
     return Ok(());
 }
 
+#[allow(unused_variables, unused_mut)]
 fn read_num<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<(), String> {
     unimplemented!();
 }
@@ -134,17 +133,17 @@ fn extract_document<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<cha
 
 fn main() {
     let mut args = env::args();
-    let us = args.next().expect("binary name must always be present??");
+    args.next().expect("binary name must always be present??");
     let path = args.next().expect("input filename must be provided");
     let mut file = io::BufReader::new(fs::File::open(path).expect("input file must exist and be readable"));
     let mut iter = Stream::new(&mut file);
 
-    let mut work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
+    let work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
 
     let mut threads: Vec<thread::JoinHandle<_>> = Vec::new();
 
     for _ in 1..10 {
-        let mut thread_work = work.clone();
+        let thread_work = work.clone();
         threads.push(thread::spawn(move || {
             let params = postgres::params::ConnectParams::builder()
                 .user("faux", None)
