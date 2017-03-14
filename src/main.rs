@@ -46,7 +46,7 @@ type WorkStack = sync::Arc<(sync::Mutex<Vec<Option<String>>>, sync::Condvar)>;
 fn push(us: &WorkStack, val: Option<String>) {
     let &(ref mux, ref cvar) = &**us;
     let mut lock = mux.lock().unwrap();
-    lock.push(val);
+    lock.insert(0, val);
     cvar.notify_one();
 }
 
@@ -136,7 +136,7 @@ fn main() {
     let mut args = env::args();
     let us = args.next().expect("binary name must always be present??");
     let path = args.next().expect("input filename must be provided");
-    let mut file = fs::File::open(path).expect("input file must exist and be readable");
+    let mut file = io::BufReader::new(fs::File::open(path).expect("input file must exist and be readable"));
     let mut iter = Stream::new(&mut file);
 
     let mut work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
