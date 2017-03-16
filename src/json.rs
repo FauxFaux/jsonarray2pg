@@ -3,6 +3,7 @@ use std::io;
 //magic
 use std::io::Read;
 
+
 struct Stream<T: io::Read> {
     it: io::Chars<T>,
     next: Option<char>,
@@ -39,12 +40,14 @@ fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -> R
         drop_whitespace(&mut iter);
         read_string(&mut iter, &mut buf)?;
         drop_whitespace(&mut iter);
-        assert_eq!(':', iter.next().unwrap());
+        if ':' != iter.next().ok_or("eof at key-value gap")? {
+            return Err("invalid key-value separator".to_string());
+        }
         buf.push(':');
         drop_whitespace(&mut iter);
-        try!(extract_document(&mut iter, &mut buf));
+        try!(parse_token(&mut iter, &mut buf));
         drop_whitespace(&mut iter);
-        let end = iter.next().unwrap();
+        let end = iter.next().ok_or("eof at potential end of doc")?;
         buf.push(end);
         match end {
             ',' => continue,
@@ -66,7 +69,7 @@ fn read_string<T: io::Read>(mut iter: &mut Stream<T>,
     assert_eq!('"', iter.next().unwrap());
     buf.push('"');
     loop {
-        let c = iter.next().unwrap();
+        let c = iter.next().ok_or("eof in string")?;
         buf.push(c);
         if c == '\\' {
             if iter.peek() == '"' {
@@ -85,7 +88,7 @@ fn read_num<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<()
     unimplemented!();
 }
 
-fn extract_document<T: io::Read>(mut iter: &mut Stream<T>,
+fn parse_token<T: io::Read>(mut iter: &mut Stream<T>,
                                  mut buf: &mut Vec<char>)
                                  -> Result<(), String> {
     drop_whitespace(&mut iter);
@@ -104,16 +107,27 @@ fn extract_document<T: io::Read>(mut iter: &mut Stream<T>,
     return Ok(());
 }
 
+fn other_err(msg: String) -> io::Error {
+    io::Error::new(io::ErrorKind::Other, msg)
+}
+
+fn bad_eof() -> io::Error {
+    io::Error::new(io::ErrorKind::UnexpectedEof, "needed more tokens, but the end of the file was found")
+}
+
 pub fn parse_array<T: io::Read, F>(mut from: &mut T, mut consumer: F)-> io::Result<()>
 where F: FnMut(String) -> io::Result<()>
  {
     let mut iter: Stream<&mut T> = Stream::new(&mut from);
     let mut buf: Vec<char> = Vec::new();
-    assert_eq!('[', iter.next().expect("non-empty file"));
+    let start = iter.next().ok_or_else(bad_eof)?;
+    if '[' != start {
+        return Err(other_err(format!("start token must be a [, not a '{}'", start)));
+    }
     loop {
-        extract_document(&mut iter, &mut buf).expect("suc");
+        try!(parse_token(&mut iter, &mut buf).map_err(other_err));
         drop_whitespace(&mut iter);
-        let end = iter.next().unwrap();
+        let end = iter.next().ok_or_else(bad_eof)?;
         if end == ',' {
             let s: String = buf.iter().cloned().collect();
             try!(consumer(s));
@@ -121,10 +135,9 @@ where F: FnMut(String) -> io::Result<()>
             continue;
         }
         if ']' == end {
-            break;
+            return Ok(());
         }
-        panic!("invalid ender: {}", end);
+        return Err(other_err(format!("invalid token at end of array: {}", end)));
     }
-    return Ok(());
 }
 
