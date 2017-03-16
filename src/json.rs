@@ -13,12 +13,14 @@ fn drop_whitespace<T: Iterator<Item = u8>>(iter: &mut Peekable<T>) {
             if next.is_none() {
                 break;
             }
-            *next.unwrap() as char
+            *next.unwrap()
         };
 
-        if !c.is_whitespace() {
-            break;
-        }
+        match c {
+            // ' ' | '\t' | '\r' | '\n'
+            0x20 | 0x09 | 0x0A | 0x0D => (),
+            _ => break,
+        };
         iter.next();
     }
 }
