@@ -72,9 +72,8 @@ fn read_string<T: io::Read>(mut iter: &mut Stream<T>,
         let c = iter.next().ok_or("eof in string")?;
         buf.push(c);
         if c == '\\' {
-            if iter.peek() == '"' {
-                panic!("can't do strings with escaped quotes: lazy");
-            }
+            buf.push(iter.next().ok_or("eof after backslash in string")?);
+            continue;
         }
         if c == '"' {
             break;
