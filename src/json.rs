@@ -1,40 +1,35 @@
 use std::io;
 use std::str;
 
+use std::iter::Peekable;
+
 //magic
 use std::io::Read;
 
-
-struct Stream<T: io::Read> {
-    it: io::Bytes<T>,
+struct Stream<T: Iterator<Item=u8>> {
+    it: T,
     next: Option<u8>,
 }
 
-impl<T: io::Read> Stream<T> {
+impl<T: Iterator<Item=u8>> Stream<T> {
     fn peek(&mut self) -> u8 {
         return self.next.expect("asked for more!");
     }
 
     fn next(&mut self) -> Option<u8> {
         let old_val = self.next;
-        self.next = self.it.next().map(|x| x.unwrap());
+        self.next = self.it.next();
         return old_val;
-    }
-
-    fn new(from: &mut T) -> Stream<&mut T> {
-        let mut it = from.bytes();
-        let next = it.next().map(|x| x.unwrap());
-        return Stream { it, next };
     }
 }
 
-fn drop_whitespace<T: io::Read>(iter: &mut Stream<T>) {
+fn drop_whitespace<T: Iterator<Item=u8>>(iter: &mut Stream<T>) {
     while (iter.peek() as char).is_whitespace() {
         iter.next();
     }
 }
 
-fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<u8>) -> Result<(), String> {
+fn read_doc<T: Iterator<Item=u8>>(mut iter: &mut Stream<T>, mut buf: &mut Vec<u8>) -> Result<(), String> {
     assert_eq!('{' as u8, iter.next().unwrap());
     buf.push('{' as u8);
     loop {
@@ -60,11 +55,11 @@ fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<u8>) -> Res
 }
 
 #[allow(unused)]
-fn read_array<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<u8>) -> Result<(), String> {
+fn read_array<T: Iterator<Item=u8>>(mut iter: &mut Stream<T>, buf: &Vec<u8>) -> Result<(), String> {
     unimplemented!();
 }
 
-fn read_string<T: io::Read>(mut iter: &mut Stream<T>,
+fn read_string<T: Iterator<Item=u8>>(mut iter: &mut Stream<T>,
                             mut buf: &mut Vec<u8>)
                             -> Result<(), String> {
     assert_eq!('"' as u8, iter.next().unwrap());
@@ -84,11 +79,11 @@ fn read_string<T: io::Read>(mut iter: &mut Stream<T>,
 }
 
 #[allow(unused_variables, unused_mut)]
-fn read_num<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<u8>) -> Result<(), String> {
+fn read_num<T: Iterator<Item=u8>>(mut iter: &mut Stream<T>, buf: &Vec<u8>) -> Result<(), String> {
     unimplemented!();
 }
 
-fn parse_token<T: io::Read>(mut iter: &mut Stream<T>,
+fn parse_token<T: Iterator<Item=u8>>(mut iter: &mut Stream<T>,
                             mut buf: &mut Vec<u8>)
                             -> Result<(), String> {
     drop_whitespace(&mut iter);
@@ -119,7 +114,12 @@ fn bad_eof() -> io::Error {
 pub fn parse_array<T: io::Read, F>(mut from: &mut T, mut consumer: F) -> io::Result<()>
     where F: FnMut(&str) -> io::Result<()>
 {
-    let mut iter: Stream<&mut T> = Stream::new(&mut from);
+    let mut iter = {
+         let mut it = from.bytes().map(|x| x.expect("read error"));
+         let next = it.next();
+         Stream { it, next }
+    };
+
     let mut buf: Vec<u8> = Vec::new();
     let start = iter.next().ok_or_else(bad_eof)? as char;
     if '[' != start {
