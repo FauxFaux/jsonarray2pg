@@ -39,13 +39,16 @@ fn read_doc<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
         drop_whitespace(&mut iter);
         try!(parse_token(&mut iter, &mut buf));
         drop_whitespace(&mut iter);
-        let end = iter.next().ok_or("eof at potential end of doc")? as char;
-        buf.push(end as u8);
-        match end {
-            ',' => continue,
-            '}' => break,
-            _ => return Err(format!("found {} while trying to read document", end)),
-        };
+        let end = iter.next().ok_or("eof at potential end of doc")?;
+        buf.push(end);
+        if ',' as u8 == end {
+            continue;
+        }
+        if '}' as u8 == end {
+            break;
+        }
+
+        return Err(format!("found {} while trying to read document", end));
     }
     return Ok(());
 }
@@ -122,15 +125,15 @@ pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<
     where F: FnMut(&str) -> io::Result<()>
 {
     let mut buf: Vec<u8> = Vec::new();
-    let start = iter.next().ok_or_else(bad_eof)? as char;
-    if '[' != start {
-        return Err(other_err(format!("start token must be a [, not a '{}'", start)));
+    let start = iter.next().ok_or_else(bad_eof)?;
+    if '[' as u8 != start {
+        return Err(other_err(format!("start token must be a [, not a '{}'", start as char)));
     }
     loop {
         try!(parse_token(&mut iter, &mut buf).map_err(other_err));
         drop_whitespace(&mut iter);
-        let end = iter.next().ok_or_else(bad_eof)? as char;
-        if end == ',' {
+        let end = iter.next().ok_or_else(bad_eof)?;
+        if ',' as u8 == end {
             {
                 let as_str = str::from_utf8(buf.as_slice())
                     .map_err(|e| other_err(format!("document part isn't valid utf-8: {}", e)))?;
@@ -139,7 +142,7 @@ pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<
             buf = Vec::new();
             continue;
         }
-        if ']' == end {
+        if ']' as u8 == end {
             return Ok(());
         }
         return Err(other_err(format!("invalid token at end of array: {}", end)));
