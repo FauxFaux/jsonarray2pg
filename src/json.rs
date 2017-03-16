@@ -89,8 +89,8 @@ fn read_num<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<()
 }
 
 fn parse_token<T: io::Read>(mut iter: &mut Stream<T>,
-                                 mut buf: &mut Vec<char>)
-                                 -> Result<(), String> {
+                            mut buf: &mut Vec<char>)
+                            -> Result<(), String> {
     drop_whitespace(&mut iter);
 
     let start = iter.peek();
@@ -112,12 +112,13 @@ fn other_err(msg: String) -> io::Error {
 }
 
 fn bad_eof() -> io::Error {
-    io::Error::new(io::ErrorKind::UnexpectedEof, "needed more tokens, but the end of the file was found")
+    io::Error::new(io::ErrorKind::UnexpectedEof,
+                   "needed more tokens, but the end of the file was found")
 }
 
-pub fn parse_array<T: io::Read, F>(mut from: &mut T, mut consumer: F)-> io::Result<()>
-where F: FnMut(String) -> io::Result<()>
- {
+pub fn parse_array<T: io::Read, F>(mut from: &mut T, mut consumer: F) -> io::Result<()>
+    where F: FnMut(String) -> io::Result<()>
+{
     let mut iter: Stream<&mut T> = Stream::new(&mut from);
     let mut buf: Vec<char> = Vec::new();
     let start = iter.next().ok_or_else(bad_eof)?;
@@ -140,4 +141,3 @@ where F: FnMut(String) -> io::Result<()>
         return Err(other_err(format!("invalid token at end of array: {}", end)));
     }
 }
-
