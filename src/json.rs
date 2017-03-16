@@ -131,9 +131,11 @@ pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<
         drop_whitespace(&mut iter);
         let end = iter.next().ok_or_else(bad_eof)? as char;
         if end == ',' {
-            consumer(str::from_utf8(buf.as_slice()).map_err(|e| {
-                                      other_err(format!("document part isn't valid utf-8: {}", e))
-                                  })?)?;
+            {
+                let as_str = str::from_utf8(buf.as_slice())
+                    .map_err(|e| other_err(format!("document part isn't valid utf-8: {}", e)))?;
+                consumer(as_str)?;
+            }
             buf = Vec::new();
             continue;
         }
