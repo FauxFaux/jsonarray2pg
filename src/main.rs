@@ -66,7 +66,7 @@ fn main() {
         }));
     }
 
-    json::parse_array(&mut reader, |doc| {
+    json::parse_array_from_file(&mut reader, |doc| {
         push(&work, Some(String::from(doc))).map_err(other_err)
     }).expect("success");
 
