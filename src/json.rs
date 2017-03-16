@@ -1,54 +1,55 @@
 use std::io;
+use std::str;
 
 //magic
 use std::io::Read;
 
 
 struct Stream<T: io::Read> {
-    it: io::Chars<T>,
-    next: Option<char>,
+    it: io::Bytes<T>,
+    next: Option<u8>,
 }
 
 impl<T: io::Read> Stream<T> {
-    fn peek(&mut self) -> char {
+    fn peek(&mut self) -> u8 {
         return self.next.expect("asked for more!");
     }
 
-    fn next(&mut self) -> Option<char> {
+    fn next(&mut self) -> Option<u8> {
         let old_val = self.next;
         self.next = self.it.next().map(|x| x.unwrap());
         return old_val;
     }
 
     fn new(from: &mut T) -> Stream<&mut T> {
-        let mut it = from.chars();
+        let mut it = from.bytes();
         let next = it.next().map(|x| x.unwrap());
         return Stream { it, next };
     }
 }
 
 fn drop_whitespace<T: io::Read>(iter: &mut Stream<T>) {
-    while iter.peek().is_whitespace() {
+    while (iter.peek() as char).is_whitespace() {
         iter.next();
     }
 }
 
-fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -> Result<(), String> {
-    assert_eq!('{', iter.next().unwrap());
-    buf.push('{');
+fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<u8>) -> Result<(), String> {
+    assert_eq!('{' as u8, iter.next().unwrap());
+    buf.push('{' as u8);
     loop {
         drop_whitespace(&mut iter);
         read_string(&mut iter, &mut buf)?;
         drop_whitespace(&mut iter);
-        if ':' != iter.next().ok_or("eof at key-value gap")? {
+        if ':' as u8 != iter.next().ok_or("eof at key-value gap")? {
             return Err("invalid key-value separator".to_string());
         }
-        buf.push(':');
+        buf.push(':' as u8);
         drop_whitespace(&mut iter);
         try!(parse_token(&mut iter, &mut buf));
         drop_whitespace(&mut iter);
-        let end = iter.next().ok_or("eof at potential end of doc")?;
-        buf.push(end);
+        let end = iter.next().ok_or("eof at potential end of doc")? as char;
+        buf.push(end as u8);
         match end {
             ',' => continue,
             '}' => break,
@@ -59,23 +60,23 @@ fn read_doc<T: io::Read>(mut iter: &mut Stream<T>, mut buf: &mut Vec<char>) -> R
 }
 
 #[allow(unused)]
-fn read_array<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<(), String> {
+fn read_array<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<u8>) -> Result<(), String> {
     unimplemented!();
 }
 
 fn read_string<T: io::Read>(mut iter: &mut Stream<T>,
-                            mut buf: &mut Vec<char>)
+                            mut buf: &mut Vec<u8>)
                             -> Result<(), String> {
-    assert_eq!('"', iter.next().unwrap());
-    buf.push('"');
+    assert_eq!('"' as u8, iter.next().unwrap());
+    buf.push('"' as u8);
     loop {
         let c = iter.next().ok_or("eof in string")?;
         buf.push(c);
-        if c == '\\' {
+        if c == '\\' as u8 {
             buf.push(iter.next().ok_or("eof after backslash in string")?);
             continue;
         }
-        if c == '"' {
+        if c == '"' as u8 {
             break;
         }
     }
@@ -83,16 +84,16 @@ fn read_string<T: io::Read>(mut iter: &mut Stream<T>,
 }
 
 #[allow(unused_variables, unused_mut)]
-fn read_num<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<char>) -> Result<(), String> {
+fn read_num<T: io::Read>(mut iter: &mut Stream<T>, buf: &Vec<u8>) -> Result<(), String> {
     unimplemented!();
 }
 
 fn parse_token<T: io::Read>(mut iter: &mut Stream<T>,
-                            mut buf: &mut Vec<char>)
+                            mut buf: &mut Vec<u8>)
                             -> Result<(), String> {
     drop_whitespace(&mut iter);
 
-    let start = iter.peek();
+    let start = iter.peek() as char;
     if start.is_digit(10) || '-' == start {
         read_num(&mut iter, &mut buf)?;
     } else {
@@ -116,22 +117,23 @@ fn bad_eof() -> io::Error {
 }
 
 pub fn parse_array<T: io::Read, F>(mut from: &mut T, mut consumer: F) -> io::Result<()>
-    where F: FnMut(String) -> io::Result<()>
+    where F: FnMut(&str) -> io::Result<()>
 {
     let mut iter: Stream<&mut T> = Stream::new(&mut from);
-    let mut buf: Vec<char> = Vec::new();
-    let start = iter.next().ok_or_else(bad_eof)?;
+    let mut buf: Vec<u8> = Vec::new();
+    let start = iter.next().ok_or_else(bad_eof)? as char;
     if '[' != start {
         return Err(other_err(format!("start token must be a [, not a '{}'", start)));
     }
     loop {
         try!(parse_token(&mut iter, &mut buf).map_err(other_err));
         drop_whitespace(&mut iter);
-        let end = iter.next().ok_or_else(bad_eof)?;
+        let end = iter.next().ok_or_else(bad_eof)? as char;
         if end == ',' {
-            let s: String = buf.iter().cloned().collect();
-            try!(consumer(s));
-            buf.clear();
+            consumer(str::from_utf8(buf.as_slice()).map_err(|e| {
+                other_err(format!("document part isn't valid utf-8: {}", e))
+            })?)?;
+            buf = Vec::new();
             continue;
         }
         if ']' == end {
