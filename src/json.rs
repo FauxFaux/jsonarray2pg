@@ -8,12 +8,9 @@ use std::io::Read;
 
 fn drop_whitespace<T: Iterator<Item = u8>>(iter: &mut Peekable<T>) {
     loop {
-        let c = {
-            let next = iter.peek();
-            if next.is_none() {
-                break;
-            }
-            *next.unwrap()
+        let c = match iter.peek() {
+            Some(x) => *x,
+            None => break,
         };
 
         match c {
@@ -21,6 +18,7 @@ fn drop_whitespace<T: Iterator<Item = u8>>(iter: &mut Peekable<T>) {
             0x20 | 0x09 | 0x0A | 0x0D => (),
             _ => break,
         };
+
         iter.next();
     }
 }
