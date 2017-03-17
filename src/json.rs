@@ -125,7 +125,6 @@ fn read_num<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
                 'N' as u8 == c || // NaN
                 'I' as u8 == c || // Infinity
                 (c >= 'A' as u8 && c <= 'F' as u8)) {
-            // alternate hex
             break;
         }
 
