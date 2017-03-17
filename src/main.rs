@@ -14,22 +14,29 @@ mod json;
 
 use argparse::{ArgumentParser, StoreTrue, Store};
 
-type WorkStack = sync::Arc<(sync::Mutex<Vec<Option<String>>>, sync::Condvar)>;
+type WorkStack = sync::Arc<(
+    sync::Mutex<Vec<Option<String>>>,
+    sync::Condvar, // not_empty
+    sync::Condvar)>;
 
-fn push(us: &WorkStack, val: Option<String>) -> Result<(), String> {
-    let &(ref mux, ref cvar) = &**us;
+fn push(us: &WorkStack, max: usize, val: Option<String>) -> Result<(), String> {
+    let &(ref mux, ref not_empty, ref not_full) = &**us;
     let mut lock = try!(mux.lock().map_err(|e| format!("threadpool damaged: {}", e)));
+    while lock.len() == max {
+        lock = not_full.wait(lock).unwrap();
+    }
     lock.insert(0, val);
-    cvar.notify_one();
+    not_empty.notify_one();
     return Ok(());
 }
 
 fn pop(us: &WorkStack) -> Option<String> {
-    let &(ref mux, ref cvar) = &**us;
+    let &(ref mux, ref not_empty, ref not_full) = &**us;
     let mut lock = mux.lock().unwrap();
     while lock.is_empty() {
-        lock = cvar.wait(lock).unwrap();
+        lock = not_empty.wait(lock).unwrap();
     }
+    not_full.notify_one();
     return lock.pop().unwrap();
 }
 
@@ -84,7 +91,10 @@ fn main() {
         }
     };
 
-    let work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
+    let work: WorkStack = sync::Arc::new((
+            sync::Mutex::new(Vec::new()),
+            sync::Condvar::new(),
+            sync::Condvar::new()));
 
     let mut threads: Vec<thread::JoinHandle<_>> = Vec::new();
 
@@ -114,11 +124,11 @@ fn main() {
     }
 
     json::parse_array_from_file(&mut reader, |doc| {
-        push(&work, Some(String::from(doc))).map_err(other_err)
+        push(&work, thread_count, Some(String::from(doc))).map_err(other_err)
     }).expect("parsing or writing failed");
 
     for _ in &threads {
-        push(&work, None).expect("asking to shutdown failed??");
+        push(&work, thread_count, None).expect("asking to shutdown failed??");
     }
 
     for t in threads {
