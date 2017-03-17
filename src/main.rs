@@ -104,15 +104,6 @@ fn run() -> u8 {
         ap.parse_args_or_exit();
     }
 
-    if table.is_empty() == query.is_empty() {
-        writeln!(io::stderr(), "exactly one of table or query must be specified").unwrap();
-        return 2;
-    }
-
-    if query.is_empty() {
-        query = format!("INSERT INTO \"{}\" (row) VALUES ($1::varchar::jsonb)", table);
-    }
-
     let stdin = io::stdin();
     let mut reader =
         if path == "-" {
@@ -128,6 +119,16 @@ fn run() -> u8 {
         }).expect("success");
         return 0;
     }
+
+    if table.is_empty() == query.is_empty() {
+        writeln!(io::stderr(), "exactly one of table or query must be specified").unwrap();
+        return 2;
+    }
+
+    if query.is_empty() {
+        query = format!("INSERT INTO \"{}\" (row) VALUES ($1::varchar::jsonb)", table);
+    }
+
 
     let url = match env::var("PGURL") {
         Ok(val) => val,
