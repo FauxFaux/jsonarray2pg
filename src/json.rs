@@ -104,9 +104,21 @@ fn read_string<T: Iterator<Item = u8>>(mut iter: &mut T,
     return Ok(());
 }
 
-#[allow(unused_variables, unused_mut)]
-fn read_num<T: Iterator<Item = u8>>(mut iter: &mut T, buf: &Vec<u8>) -> Result<(), String> {
-    unimplemented!();
+fn read_num<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut Vec<u8>) -> Result<(), String> {
+    loop {
+        let c = *iter.peek().ok_or("eof in a word/number")?;
+        if !((c >= 'a' as u8 && c <= 'z' as u8) ||
+                '-' as u8 == c || '+' as u8 == c ||
+                'N' as u8 == c || // NaN
+                'I' as u8 == c || // Infinity
+                (c >= 'A' as u8 && c <= 'F' as u8)) { // alternate hex
+            break;
+        }
+
+        buf.push(c);
+        iter.next().unwrap();
+    }
+    return Ok(());
 }
 
 fn parse_token<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
@@ -114,18 +126,12 @@ fn parse_token<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
                                        -> Result<(), String> {
     drop_whitespace(&mut iter);
 
-    let start = *iter.peek().ok_or("parse token requires there to be a next token".to_string())? as
-                char;
-    if start.is_digit(10) || '-' == start {
-        read_num(&mut iter, &mut buf)?;
-    } else {
-        match start {
-            '{' => read_doc(&mut iter, &mut buf),
-            '[' => read_array(&mut iter, &mut buf),
-            '"' => read_string(&mut iter, &mut buf),
-            _ => Err(format!("invalid token start: {}", start)),
-        }?
-    }
+    match *iter.peek().ok_or("parse token requires there to be a next token".to_string())? as char {
+        '{' => read_doc(&mut iter, &mut buf),
+        '[' => read_array(&mut iter, &mut buf),
+        '"' => read_string(&mut iter, &mut buf),
+        _ => read_num(&mut iter, &mut buf),
+    }?;
     return Ok(());
 }
 
