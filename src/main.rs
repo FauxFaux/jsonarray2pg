@@ -1,6 +1,6 @@
+extern crate argparse;
 extern crate postgres;
 
-use std::env;
 use std::fs;
 use std::io;
 use std::path;
@@ -10,6 +10,8 @@ use std::thread;
 use std::vec::Vec;
 
 mod json;
+
+use argparse::{ArgumentParser, StoreTrue, Store};
 
 type WorkStack = sync::Arc<(sync::Mutex<Vec<Option<String>>>, sync::Condvar)>;
 
@@ -35,11 +37,34 @@ fn other_err(msg: String) -> io::Error {
 }
 
 fn main() {
-    let mut args = env::args();
-    args.next().expect("binary name must always be present??");
-    let path = args.next().expect("input filename must be provided");
-    let file = fs::File::open(path).expect("input file must exist and be readable");
-    let mut reader = io::BufReader::new(file);
+    let mut path: String = "-".to_string();
+    let mut stdout = false;
+    {
+        let mut ap = ArgumentParser::new();
+        ap.set_description("read a json array file");
+        ap.refer(&mut stdout)
+            .add_option(&["--stdout"], StoreTrue, "write cleaned lines to stdout");
+        ap.refer(&mut path)
+            .required()
+            .add_argument("input", Store, "input file to read (or -)");
+        ap.parse_args_or_exit();
+    }
+
+    let stdin = io::stdin();
+    let mut reader =
+        if path == "-" {
+            Box::new(stdin.lock()) as Box<io::Read>
+        } else {
+            Box::new(io::BufReader::new(fs::File::open(path).expect("input file must exist and be readable")))
+        };
+
+    if stdout {
+        json::parse_array_from_file(&mut reader, |doc| {
+            println!("jeepers! {}", doc);
+            Ok(())
+        }).expect("success");
+        return;
+    }
 
     let work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
 
