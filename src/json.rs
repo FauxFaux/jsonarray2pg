@@ -65,6 +65,7 @@ fn read_array<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut 
 
     drop_whitespace(iter);
     if ']' as u8 == *iter.peek().ok_or("eof in short array")? {
+        iter.next().unwrap();
         buf.push(']' as u8);
         return Ok(());
     }
@@ -114,6 +115,7 @@ fn read_num<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut Ve
     loop {
         let c = *iter.peek().ok_or("eof in a word/number")?;
         if !((c >= 'a' as u8 && c <= 'z' as u8) ||
+             (c >= '0' as u8 && c <= '9' as u8) ||
                 '-' as u8 == c || '+' as u8 == c ||
                 'N' as u8 == c || // NaN
                 'I' as u8 == c || // Infinity
@@ -164,6 +166,7 @@ pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<
     where F: FnMut(&str) -> io::Result<()>
 {
     let mut buf: Vec<u8> = Vec::new();
+    drop_whitespace(iter);
     let start = iter.next().ok_or_else(bad_eof)?;
     if '[' as u8 != start {
         return Err(other_err(format!("start token must be a [, not a '{}'", start as char)));
