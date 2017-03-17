@@ -8,6 +8,7 @@ use std::io;
 use std::process;
 use std::sync;
 use std::thread;
+use std::time;
 
 use std::vec::Vec;
 
@@ -23,11 +24,22 @@ type WorkStack = sync::Arc<(
     sync::Condvar, // not_empty
     sync::Condvar)>;
 
-fn push(us: &WorkStack, max: usize, val: Option<String>) -> Result<(), String> {
+fn push(
+    us: &WorkStack,
+    max: usize,
+    live_crashes: &sync::Arc<sync::atomic::AtomicBool>,
+    val: Option<String>)
+    -> Result<(), String> {
     let &(ref mux, ref not_empty, ref not_full) = &**us;
     let mut lock = try!(mux.lock().map_err(|e| format!("threadpool damaged: {}", e)));
     while lock.len() == max {
-        lock = not_full.wait(lock).unwrap();
+        let (new_lock, timeout) = not_full.wait_timeout(lock, time::Duration::from_secs(1)).unwrap();
+        lock = new_lock;
+        if timeout.timed_out() {
+            if live_crashes.load(sync::atomic::Ordering::Relaxed) {
+                return Err("some thread has died".to_string());
+            }
+        }
     }
     lock.insert(0, val);
     not_empty.notify_one();
@@ -46,6 +58,27 @@ fn pop(us: &WorkStack) -> Option<String> {
 
 fn other_err(msg: String) -> io::Error {
     io::Error::new(io::ErrorKind::Other, msg)
+}
+
+fn worker_thread(work: WorkStack, url: String, query: String) -> Result<(), String> {
+    let conn = postgres::Connection::connect(url.as_str(), postgres::TlsMode::None)
+        .map_err(|e| format!("connecting to {} failed: {}", url, e))?;
+    let tran = conn.transaction()
+        .map_err(|e| format!("starting a transaction failed: {}", e))?;
+    let stmt = tran.prepare(query.as_str())
+        .map_err(|e| format!("preparing statement failed: {}", e))?;
+    loop {
+        let s = pop(&work);
+        if s.is_none() {
+            break;
+        }
+        stmt.execute(&[&s.unwrap()])
+            .map_err(|e| format!("executing statement failed: {}", e))?;
+    }
+    tran.commit()
+        .map_err(|e| format!("committing results failed: {}", e))?;
+
+    return Ok(());
 }
 
 fn run() -> u8 {
@@ -116,45 +149,53 @@ fn run() -> u8 {
             sync::Condvar::new()));
 
     let mut threads: Vec<thread::JoinHandle<_>> = Vec::new();
+    let live_crashes = sync::Arc::new(sync::atomic::AtomicBool::new(false));
 
     for _ in 0..thread_count {
         let thread_work = work.clone();
         let thread_url = url.clone();
         let thread_query = query.clone();
+        let thread_live_crashes = live_crashes.clone();
         threads.push(thread::spawn(move || -> Result<(), String> {
-            let conn = postgres::Connection::connect(thread_url.as_str(), postgres::TlsMode::None)
-                .map_err(|e| format!("connecting to {} failed: {}", thread_url, e))?;
-            let tran = conn.transaction()
-                .map_err(|e| format!("starting a transaction failed: {}", e))?;
-            let stmt = tran.prepare(thread_query.as_str())
-                .map_err(|e| format!("preparing statement failed: {}", e))?;
-            loop {
-                let s = pop(&thread_work);
-                if s.is_none() {
-                    break;
-                }
-                stmt.execute(&[&s.unwrap()])
-                    .map_err(|e| format!("executing statement failed: {}", e))?;
-            }
-            tran.commit()
-                .map_err(|e| format!("committing results failed: {}", e))?;
-
-            return Ok(());
+            let res = worker_thread(thread_work, thread_url, thread_query);
+            thread_live_crashes.store(true, sync::atomic::Ordering::Relaxed);
+            return res;
         }));
     }
 
-    json::parse_array_from_file(&mut reader, |doc| {
-        push(&work, thread_count, Some(String::from(doc))).map_err(other_err)
-    }).expect("parsing or writing failed");
+    let parse_success = json::parse_array_from_file(&mut reader, |doc| {
+        push(&work, thread_count, &live_crashes, Some(String::from(doc))).map_err(other_err)
+    });
+
+    let mut err: bool = false;
+
+    if let Err(e) = parse_success {
+        writeln!(io::stderr(), "error: parsing failed, trying to shut down. Cause: {}", e).unwrap();
+        let &(ref mux, _, ref not_full) = &*work;
+        let mut lock = mux.lock().unwrap();
+        lock.clear();
+        not_full.notify_all();
+        err = true;
+    }
 
     for _ in &threads {
-        push(&work, thread_count, None).expect("asking to shutdown failed??");
+        push(&work, thread_count, &live_crashes, None).expect("asking to shutdown failed??");
     }
 
+    let mut id = 0;
+    // can't use enumerate() 'cos it copies
     for t in threads {
-        t.join().expect("thread paniced!").expect("thread didn't error");
+        if let Err(e) = t.join().expect("thread paniced!") {
+            writeln!(io::stderr(), "error: thread {} failed: {}", id, e).unwrap();
+            err = true;
+        }
+        id += 1;
     }
-    return 0;
+    return if err {
+        3
+    } else {
+        0
+    };
 }
 
 fn main() {
