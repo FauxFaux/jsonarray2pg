@@ -5,4 +5,5 @@ authors = ["Chris West (Faux) <git@goeswhere.com>"]
 
 [dependencies]
 argparse = "0.2.1"
+num_cpus = "1.3.0"
 postgres = "0.14.0"

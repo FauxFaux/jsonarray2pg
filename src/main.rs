@@ -1,4 +1,5 @@
 extern crate argparse;
+extern crate num_cpus;
 extern crate postgres;
 
 use std::env;
@@ -39,11 +40,14 @@ fn other_err(msg: String) -> io::Error {
 fn main() {
     let mut path: String = "-".to_string();
     let mut stdout = false;
+    let mut thread_count: usize = num_cpus::get();
     {
         let mut ap = ArgumentParser::new();
         ap.set_description("read a json array file");
         ap.refer(&mut stdout)
             .add_option(&["--stdout"], StoreTrue, "write cleaned lines to stdout");
+        ap.refer(&mut thread_count)
+            .add_option(&["-P", "--threads"], Store, "threads (connections) to use");
         ap.refer(&mut path)
             .required()
             .add_argument("input", Store, "input file to read (or -)");
@@ -84,7 +88,7 @@ fn main() {
 
     let mut threads: Vec<thread::JoinHandle<_>> = Vec::new();
 
-    for _ in 1..10 {
+    for _ in 0..thread_count {
         let thread_work = work.clone();
         let thread_url = url.clone();
         threads.push(thread::spawn(move || -> Result<(), String> {
