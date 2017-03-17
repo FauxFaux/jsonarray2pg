@@ -116,6 +116,7 @@ fn read_num<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut Ve
         let c = *iter.peek().ok_or("eof in a word/number")?;
         if !((c >= 'a' as u8 && c <= 'z' as u8) ||
              (c >= '0' as u8 && c <= '9' as u8) ||
+                '.' as u8 == c ||
                 '-' as u8 == c || '+' as u8 == c ||
                 'N' as u8 == c || // NaN
                 'I' as u8 == c || // Infinity
