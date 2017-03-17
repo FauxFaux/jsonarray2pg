@@ -53,9 +53,33 @@ fn read_doc<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
     return Ok(());
 }
 
-#[allow(unused)]
-fn read_array<T: Iterator<Item = u8>>(mut iter: &mut T, buf: &Vec<u8>) -> Result<(), String> {
-    unimplemented!();
+fn read_array<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut Vec<u8>) -> Result<(), String> {
+    assert_eq!('[' as u8, iter.next().unwrap());
+    buf.push('[' as u8);
+
+    drop_whitespace(iter);
+    if ']' as u8 == *iter.peek().ok_or("eof in short array")? {
+        buf.push(']' as u8);
+        return Ok(());
+    }
+
+    loop {
+        parse_token(&mut iter, &mut buf)?;
+
+        drop_whitespace(iter);
+        let end = iter.next().ok_or("eof in long array")?;
+        buf.push(end);
+
+        if ',' as u8 == end {
+            continue;
+        }
+
+        if ']' as u8 == end {
+            return Ok(());
+        }
+
+        return Err(format!("invalid end of array: {}", end as char));
+    }
 }
 
 fn read_string<T: Iterator<Item = u8>>(mut iter: &mut T,
@@ -72,6 +96,9 @@ fn read_string<T: Iterator<Item = u8>>(mut iter: &mut T,
         }
         if c == '"' as u8 {
             break;
+        }
+        if c < ' ' as u8 {
+            return Err(format!("control character in string: {}", c));
         }
     }
     return Ok(());
@@ -128,6 +155,9 @@ pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<
     let start = iter.next().ok_or_else(bad_eof)?;
     if '[' as u8 != start {
         return Err(other_err(format!("start token must be a [, not a '{}'", start as char)));
+    }
+    if ']' as u8 == *iter.peek().ok_or_else(bad_eof)? {
+        return Ok(());
     }
     loop {
         try!(parse_token(&mut iter, &mut buf).map_err(other_err));
