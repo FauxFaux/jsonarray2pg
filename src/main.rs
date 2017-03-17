@@ -85,7 +85,7 @@ fn main() {
                     Ok(val) => val,
                     Err(_) => panic!("USER or PGURL env is required to be present and valid unicode"),
                 };
-                String::from("postgres://") + whoami.as_str() + "@%2Frun%2Fpostgresql"
+                format!("postgres://{}@%2Frun%2Fpostgresql", whoami)
             },
             env::VarError::NotUnicode(_) => panic!("PGURL was set, but contained invalid characters"),
         }
