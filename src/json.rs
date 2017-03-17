@@ -28,6 +28,12 @@ fn read_doc<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
                                     -> Result<(), String> {
     assert_eq!('{' as u8, iter.next().unwrap());
     buf.push('{' as u8);
+    drop_whitespace(&mut iter);
+    if '}' as u8 == *iter.peek().ok_or("eof in short object")? {
+        buf.push('}' as u8);
+        iter.next().unwrap();
+        return Ok(());
+    }
     loop {
         drop_whitespace(&mut iter);
         read_string(&mut iter, &mut buf)?;
