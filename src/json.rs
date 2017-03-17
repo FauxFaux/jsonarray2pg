@@ -59,7 +59,9 @@ fn read_doc<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
     return Ok(());
 }
 
-fn read_array<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut Vec<u8>) -> Result<(), String> {
+fn read_array<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
+                                      mut buf: &mut Vec<u8>)
+                                      -> Result<(), String> {
     assert_eq!('[' as u8, iter.next().unwrap());
     buf.push('[' as u8);
 
@@ -111,7 +113,9 @@ fn read_string<T: Iterator<Item = u8>>(mut iter: &mut T,
     return Ok(());
 }
 
-fn read_num<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut Vec<u8>) -> Result<(), String> {
+fn read_num<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
+                                    mut buf: &mut Vec<u8>)
+                                    -> Result<(), String> {
     loop {
         let c = *iter.peek().ok_or("eof in a word/number")?;
         if !((c >= 'a' as u8 && c <= 'z' as u8) ||
@@ -120,7 +124,8 @@ fn read_num<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>, mut buf: &mut Ve
                 '-' as u8 == c || '+' as u8 == c ||
                 'N' as u8 == c || // NaN
                 'I' as u8 == c || // Infinity
-                (c >= 'A' as u8 && c <= 'F' as u8)) { // alternate hex
+                (c >= 'A' as u8 && c <= 'F' as u8)) {
+            // alternate hex
             break;
         }
 
@@ -135,7 +140,7 @@ fn parse_token<T: Iterator<Item = u8>>(mut iter: &mut Peekable<T>,
                                        -> Result<(), String> {
     drop_whitespace(&mut iter);
 
-    match *iter.peek().ok_or("parse token requires there to be a next token".to_string())? as char {
+    match *iter.peek().ok_or("eof looking for an element".to_string())? as char {
         '{' => read_doc(&mut iter, &mut buf),
         '[' => read_array(&mut iter, &mut buf),
         '"' => read_string(&mut iter, &mut buf),
