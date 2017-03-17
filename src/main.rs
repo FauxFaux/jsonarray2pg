@@ -1,9 +1,9 @@
 extern crate argparse;
 extern crate postgres;
 
+use std::env;
 use std::fs;
 use std::io;
-use std::path;
 use std::sync;
 use std::thread;
 
@@ -66,40 +66,58 @@ fn main() {
         return;
     }
 
+    let url = match env::var("PGURL") {
+        Ok(val) => val,
+        Err(e) => match e {
+            env::VarError::NotPresent => {
+                let whoami = match env::var("USER") {
+                    Ok(val) => val,
+                    Err(_) => panic!("USER or PGURL env is required to be present and valid unicode"),
+                };
+                String::from("postgres://") + whoami.as_str() + "@%2Frun%2Fpostgresql"
+            },
+            env::VarError::NotUnicode(_) => panic!("PGURL was set, but contained invalid characters"),
+        }
+    };
+
     let work = sync::Arc::new((sync::Mutex::new(Vec::new()), sync::Condvar::new()));
 
     let mut threads: Vec<thread::JoinHandle<_>> = Vec::new();
 
     for _ in 1..10 {
         let thread_work = work.clone();
-        threads.push(thread::spawn(move || {
-            let params = postgres::params::ConnectParams::builder()
-                .user("faux", None)
-                .build(postgres::params::Host::Unix(
-                        path::PathBuf::from("/var/run/postgresql")));
-            let conn = postgres::Connection::connect(params, postgres::TlsMode::None).unwrap();
-            let tran = conn.transaction().unwrap();
-            let stmt = tran.prepare("INSERT INTO db3j (row) VALUES ($1::varchar::jsonb)").unwrap();
+        let thread_url = url.clone();
+        threads.push(thread::spawn(move || -> Result<(), String> {
+            let conn = postgres::Connection::connect(thread_url.as_str(), postgres::TlsMode::None)
+                .map_err(|e| format!("connecting to {} failed: {}", thread_url, e))?;
+            let tran = conn.transaction()
+                .map_err(|e| format!("starting a transaction failed: {}", e))?;
+            let stmt = tran.prepare("INSERT INTO db3j (row) VALUES ($1::varchar::jsonb)")
+                .map_err(|e| format!("preparing statement failed: {}", e))?;
             loop {
                 let s = pop(&thread_work);
                 if s.is_none() {
                     break;
                 }
-                stmt.execute(&[&s.unwrap()]).unwrap();
+                stmt.execute(&[&s.unwrap()])
+                    .map_err(|e| format!("executing statement failed: {}", e))?;
             }
-            tran.commit().unwrap();
+            tran.commit()
+                .map_err(|e| format!("committing results failed: {}", e))?;
+
+            return Ok(());
         }));
     }
 
     json::parse_array_from_file(&mut reader, |doc| {
         push(&work, Some(String::from(doc))).map_err(other_err)
-    }).expect("success");
+    }).expect("parsing or writing failed");
 
     for _ in &threads {
-        push(&work, None).unwrap();
+        push(&work, None).expect("asking to shutdown failed??");
     }
 
     for t in threads {
-        t.join().unwrap();
+        t.join().expect("thread paniced!").expect("thread didn't error");
     }
 }
