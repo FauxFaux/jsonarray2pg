@@ -5,6 +5,7 @@ extern crate postgres;
 use std::env;
 use std::fs;
 use std::io;
+use std::process;
 use std::sync;
 use std::thread;
 
@@ -13,6 +14,9 @@ use std::vec::Vec;
 mod json;
 
 use argparse::{ArgumentParser, StoreTrue, Store};
+
+// magic:
+use std::io::Write;
 
 type WorkStack = sync::Arc<(
     sync::Mutex<Vec<Option<String>>>,
@@ -44,10 +48,12 @@ fn other_err(msg: String) -> io::Error {
     io::Error::new(io::ErrorKind::Other, msg)
 }
 
-fn main() {
+fn run() -> u8 {
     let mut path: String = "-".to_string();
     let mut stdout = false;
     let mut thread_count: usize = num_cpus::get();
+    let mut query = String::new();
+    let mut table = String::new();
     {
         let mut ap = ArgumentParser::new();
         ap.set_description("read a json array file");
@@ -55,10 +61,23 @@ fn main() {
             .add_option(&["--stdout"], StoreTrue, "write cleaned lines to stdout");
         ap.refer(&mut thread_count)
             .add_option(&["-P", "--threads"], Store, "threads (connections) to use");
+        ap.refer(&mut query)
+            .add_option(&["--query"], Store, "query to run");
+        ap.refer(&mut table)
+            .add_option(&["-t", "--table"], Store, "table to insert into using generated query");
         ap.refer(&mut path)
             .required()
             .add_argument("input", Store, "input file to read (or -)");
         ap.parse_args_or_exit();
+    }
+
+    if table.is_empty() == query.is_empty() {
+        writeln!(io::stderr(), "exactly one of table or query must be specified").unwrap();
+        return 2;
+    }
+
+    if query.is_empty() {
+        query = format!("INSERT INTO \"{}\" (row) VALUES ($1::varchar::jsonb)", table);
     }
 
     let stdin = io::stdin();
@@ -74,7 +93,7 @@ fn main() {
             println!("{}", doc);
             Ok(())
         }).expect("success");
-        return;
+        return 0;
     }
 
     let url = match env::var("PGURL") {
@@ -101,12 +120,13 @@ fn main() {
     for _ in 0..thread_count {
         let thread_work = work.clone();
         let thread_url = url.clone();
+        let thread_query = query.clone();
         threads.push(thread::spawn(move || -> Result<(), String> {
             let conn = postgres::Connection::connect(thread_url.as_str(), postgres::TlsMode::None)
                 .map_err(|e| format!("connecting to {} failed: {}", thread_url, e))?;
             let tran = conn.transaction()
                 .map_err(|e| format!("starting a transaction failed: {}", e))?;
-            let stmt = tran.prepare("INSERT INTO db3j (row) VALUES ($1::varchar::jsonb)")
+            let stmt = tran.prepare(thread_query.as_str())
                 .map_err(|e| format!("preparing statement failed: {}", e))?;
             loop {
                 let s = pop(&thread_work);
@@ -134,4 +154,9 @@ fn main() {
     for t in threads {
         t.join().expect("thread paniced!").expect("thread didn't error");
     }
+    return 0;
+}
+
+fn main() {
+    process::exit(run() as i32);
 }
