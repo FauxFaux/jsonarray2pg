@@ -24,16 +24,16 @@ type WorkStack = sync::Arc<(
     sync::Condvar, // not_empty
     sync::Condvar)>;
 
-fn push(
-    us: &WorkStack,
-    max: usize,
-    live_crashes: &sync::Arc<sync::atomic::AtomicBool>,
-    val: Option<String>)
-    -> Result<(), String> {
+fn push(us: &WorkStack,
+        max: usize,
+        live_crashes: &sync::Arc<sync::atomic::AtomicBool>,
+        val: Option<String>)
+        -> Result<(), String> {
+    let timeout = time::Duration::from_secs(1);
     let &(ref mux, ref not_empty, ref not_full) = &**us;
     let mut lock = try!(mux.lock().map_err(|e| format!("threadpool damaged: {}", e)));
     while lock.len() == max {
-        let (new_lock, timeout) = not_full.wait_timeout(lock, time::Duration::from_secs(1)).unwrap();
+        let (new_lock, timeout) = not_full.wait_timeout(lock, timeout).unwrap();
         lock = new_lock;
         if timeout.timed_out() {
             if live_crashes.load(sync::atomic::Ordering::Relaxed) {
@@ -191,11 +191,7 @@ fn run() -> u8 {
         }
         id += 1;
     }
-    return if err {
-        3
-    } else {
-        0
-    };
+    return if err { 3 } else { 0 };
 }
 
 fn main() {
