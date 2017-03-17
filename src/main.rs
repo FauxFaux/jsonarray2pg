@@ -60,7 +60,7 @@ fn main() {
 
     if stdout {
         json::parse_array_from_file(&mut reader, |doc| {
-            println!("jeepers! {}", doc);
+            println!("{}", doc);
             Ok(())
         }).expect("success");
         return;

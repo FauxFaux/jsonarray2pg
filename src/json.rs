@@ -133,19 +133,22 @@ pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<
         try!(parse_token(&mut iter, &mut buf).map_err(other_err));
         drop_whitespace(&mut iter);
         let end = iter.next().ok_or_else(bad_eof)?;
-        if ',' as u8 == end {
-            let last_len = buf.len();
-            {
-                let as_str = str::from_utf8(buf.as_slice())
-                    .map_err(|e| other_err(format!("document part isn't valid utf-8: {}", e)))?;
-                consumer(as_str)?;
-            }
-            buf = Vec::with_capacity(last_len * 2);
-            continue;
+
+        if (',' as u8) != end && (']' as u8) != end {
+            return Err(other_err(format!("invalid token at end of array: {}", end)));
         }
+
+        let last_len = buf.len();
+        {
+            let as_str = str::from_utf8(buf.as_slice())
+                .map_err(|e| other_err(format!("document part isn't valid utf-8: {}", e)))?;
+            consumer(as_str)?;
+        }
+
         if ']' as u8 == end {
             return Ok(());
         }
-        return Err(other_err(format!("invalid token at end of array: {}", end)));
+
+        buf = Vec::with_capacity(last_len * 2);
     }
 }
