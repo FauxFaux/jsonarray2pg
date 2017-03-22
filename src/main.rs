@@ -129,7 +129,7 @@ fn run() -> u8 {
     }
 
     if query.is_empty() {
-        query = format!("INSERT INTO \"{}\" (row) VALUES ($1::varchar::jsonb)", table);
+        query = format!("INSERT INTO {} (row) VALUES ($1::varchar::jsonb)", table);
     }
 
 
