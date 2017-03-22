@@ -157,36 +157,48 @@ fn bad_eof() -> io::Error {
                    "needed more tokens, but the end of the file was found")
 }
 
-pub fn parse_array_from_file<T: io::Read, F>(mut from: &mut T, consumer: F) -> io::Result<()>
+pub fn parse_array_from_file<T: io::Read, F>(mut from: &mut T,
+                                             consumer: F,
+                                             array: bool)
+                                             -> io::Result<()>
     where F: FnMut(&str) -> io::Result<()>
 {
     let mut iter = from.bytes().map(|x| x.expect("read error")).peekable();
-    return parse_array_from_iter(&mut iter, consumer);
+    return parse_array_from_iter(&mut iter, consumer, array);
 
 }
 
 pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<T>,
-                                                        mut consumer: F)
+                                                        mut consumer: F,
+                                                        array: bool)
                                                         -> io::Result<()>
     where F: FnMut(&str) -> io::Result<()>
 {
     let mut buf: Vec<u8> = Vec::new();
     drop_whitespace(iter);
-    let start = iter.next().ok_or_else(bad_eof)?;
-    if '[' as u8 != start {
-        return Err(other_err(format!("start token must be a [, not a '{}'", start as char)));
+
+    if array {
+        let start = iter.next().ok_or_else(bad_eof)?;
+        if '[' as u8 != start {
+            return Err(other_err(format!("start token must be a [, not a '{}'", start as char)));
+        }
+        if ']' as u8 == *iter.peek().ok_or_else(bad_eof)? {
+            return Ok(());
+        }
     }
-    if ']' as u8 == *iter.peek().ok_or_else(bad_eof)? {
-        return Ok(());
-    }
+
     loop {
         try!(parse_token(&mut iter, &mut buf).map_err(other_err));
         drop_whitespace(&mut iter);
-        let end = iter.next().ok_or_else(bad_eof)?;
-
-        if (',' as u8) != end && (']' as u8) != end {
-            return Err(other_err(format!("invalid token at end of array: {}", end)));
-        }
+        let end = if array {
+            let end = iter.next().ok_or_else(bad_eof)?;
+            if (',' as u8) != end && (']' as u8) != end {
+                return Err(other_err(format!("invalid token at end of array: {}", end)));
+            }
+            Some(end)
+        } else {
+            None
+        };
 
         let last_len = buf.len();
         {
@@ -195,8 +207,14 @@ pub fn parse_array_from_iter<T: Iterator<Item = u8>, F>(mut iter: &mut Peekable<
             consumer(as_str)?;
         }
 
-        if ']' as u8 == end {
-            return Ok(());
+        if array {
+            if ']' as u8 == end.unwrap() {
+                return Ok(());
+            }
+        } else {
+            if iter.peek().is_none() {
+                return Ok(());
+            }
         }
 
         buf = Vec::with_capacity(last_len * 2);

@@ -84,6 +84,7 @@ fn worker_thread(work: WorkStack, url: String, query: String) -> Result<(), Stri
 fn run() -> u8 {
     let mut path: String = "-".to_string();
     let mut stdout = false;
+    let mut concatenated = false;
     let mut thread_count: usize = num_cpus::get();
     let mut query = String::new();
     let mut table = String::new();
@@ -98,6 +99,8 @@ fn run() -> u8 {
             .add_option(&["--query"], Store, "query to run");
         ap.refer(&mut table)
             .add_option(&["-t", "--table"], Store, "table to insert into using generated query");
+        ap.refer(&mut concatenated)
+            .add_option(&["-C", "--concatenated"], StoreTrue, "read concatenated documents, not an array");
         ap.refer(&mut path)
             .required()
             .add_argument("input", Store, "input file to read (or -)");
@@ -116,7 +119,7 @@ fn run() -> u8 {
         json::parse_array_from_file(&mut reader, |doc| {
             println!("{}", doc);
             Ok(())
-        }).expect("success");
+        }, !concatenated).expect("success");
         return 0;
     }
 
@@ -166,7 +169,7 @@ fn run() -> u8 {
 
     let parse_success = json::parse_array_from_file(&mut reader, |doc| {
         push(&work, thread_count, &live_crashes, Some(String::from(doc))).map_err(other_err)
-    });
+    }, !concatenated);
 
     let mut err: bool = false;
 
